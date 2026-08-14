@@ -27,20 +27,18 @@ app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use(express.static('public'));
 
-// ផ្ទៀងផ្ទាត់ Environment Variables
 if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('❌ សូមដាក់ ANTHROPIC_API_KEY ក្នុង file .env ជាមុនសិន!');
+  console.error('❌ សូមកំណត់ ANTHROPIC_API_KEY ក្នុង .env!');
   process.exit(1);
 }
 if (!process.env.JWT_SECRET) {
-  console.error('❌ សូមដាក់ JWT_SECRET ក្នុង file .env ជាមុនសិន!');
+  console.error('❌ សូមកំណត់ JWT_SECRET ក្នុង .env!');
   process.exit(1);
 }
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const MODEL_NAME = process.env.MODEL_NAME || 'claude-opus-5';
 
-// ✅ Fix: បញ្ចូល baseURL សម្រាប់ AI Gateway / Custom Proxy
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
   ...(process.env.ANTHROPIC_BASE_URL && { baseURL: process.env.ANTHROPIC_BASE_URL }),
@@ -52,44 +50,33 @@ const anthropic = new Anthropic({
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (!token) return res.status(401).json({ error: 'សូម Sign in ជាមុនសិន' });
+  if (!token) return res.status(401).json({ error: 'សូម Sign In ជាមុនសិន' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.userId = payload.userId;
     next();
   } catch (e) {
-    return res.status(401).json({ error: 'Session ផុតកំណត់ សូម Sign in ម្តងទៀត' });
+    return res.status(401).json({ error: 'Session ផុតកំណត់ សូម Sign In ម្តងទៀត' });
   }
 }
 
 // ============================================
-// AUTH ENDPOINTS
+// AUTH ENDPOINTS (/api/auth/*)
 // ============================================
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { email, password, name, username } = req.body;
-    const displayName = name || username || 'User';
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password ត្រូវការយ៉ាងតិច ៦ តួអក្សរ' });
-    }
+    const { email, password, name } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email និង password ត្រូវការជាចាំបាច់' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password ត្រូវការយ៉ាងតិច ៦ តួអក្សរ' });
 
     const existingUser = findUserByEmail(email);
-    if (existingUser) {
-      return res.status(409).json({ error: 'Email នេះមានគណនីរួចហើយ — សូម Sign in ជំនួសវិញ' });
-    }
+    if (existingUser) return res.status(409).json({ error: 'Email នេះមានគណនីរួចហើយ — សូម Sign In ជំនួសវិញ' });
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const userId = createUser(email, passwordHash, displayName);
+    const userId = createUser(email, passwordHash, name || 'User');
     const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
 
-    res.json({
-      token,
-      user: { id: userId, email: email.toLowerCase().trim(), name: displayName },
-    });
+    res.json({ token, user: { id: userId, email: email.toLowerCase().trim(), name: name || 'User' } });
   } catch (error) {
     console.error('Signup Error:', error);
     res.status(500).json({ error: 'មិនអាចបង្កើតគណនីបានទេ: ' + error.message });
@@ -99,35 +86,26 @@ app.post('/api/auth/signup', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
-    }
+    if (!email || !password) return res.status(400).json({ error: 'Email និង password ត្រូវការជាចាំបាច់' });
 
     const user = findUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
-    }
+    if (!user) return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
 
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
-      return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
-    }
+    if (!valid) return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({
-      token,
-      user: { id: user.id, email: user.email, name: user.name },
-    });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
   } catch (error) {
     console.error('Login Error:', error);
-    res.status(500).json({ error: 'មិនអាច Sign in បានទេ: ' + error.message });
+    res.status(500).json({ error: 'មិនអាច Sign In បានទេ: ' + error.message });
   }
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = findUserById(req.userId);
   if (!user) return res.status(404).json({ error: 'រកគណនីមិនឃើញ' });
-  res.json({ user });
+  res.json({ user: { id: user.id, email: user.email, name: user.name } });
 });
 
 // ============================================
@@ -169,7 +147,7 @@ async function createDocx(content, title) {
 
 function safeCalculate(expression) {
   if (!/^[0-9+\-*/().\s]+$/.test(expression)) {
-    throw new Error('កន្សោមមិនត្រឹមត្រូវ — អនុញ្ញាតតែលេខ និងសញ្ញា + - * / ( )');
+    throw new Error('កន្សោមមិនត្រឹមត្រូវ');
   }
   // eslint-disable-next-line no-new-func
   const result = Function(`"use strict"; return (${expression});`)();
@@ -232,7 +210,6 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const sessionId = String(req.userId);
     if (!message && !attachment) return res.status(400).json({ error: 'សូមផ្ញើសារ' });
 
-    // ១. History + Memory
     const pastMessages = getHistory(sessionId, 20).map((m) => ({
       role: m.role,
       content: m.content,
@@ -247,7 +224,6 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
 Language rule: Reply in English by default. If the user writes in Khmer, reply in Khmer. Otherwise, match the user's language.${memoryBlock}`;
 
-    // ២. User Content
     const userContent = [];
     let attachmentLabel = null;
 
@@ -265,7 +241,7 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
         });
         attachmentLabel = `[pdf: ${attachment.name}]`;
       } else if (attachment.kind === 'text') {
-        const trimmed = attachment.textContent.slice(0, 30000);
+        const trimmed = (attachment.textContent || '').slice(0, 30000);
         userContent.push({
           type: 'text',
           text: `[Uploaded file: ${attachment.name}]\n---\n${trimmed}\n---`,
@@ -274,7 +250,7 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
       }
     }
 
-    userContent.push({ type: 'text', text: message || 'Please inspect the uploaded attachment.' });
+    userContent.push({ type: 'text', text: message || 'Please inspect the attached file.' });
 
     let messages = [...pastMessages, { role: 'user', content: userContent }];
     saveMessage(sessionId, 'user', message || attachmentLabel || '[attachment]');
@@ -283,7 +259,6 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
     let finalText = '';
     let newFacts = [];
 
-    // ៣. Agent loop (Tool Calls)
     for (let turn = 0; turn < 5; turn++) {
       const response = await anthropic.messages.create({
         model: MODEL_NAME,
@@ -353,16 +328,16 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
     saveMessage(sessionId, 'assistant', finalText, downloadUrl);
     res.json({ reply: finalText, downloadUrl, newFacts });
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('Chat API Error:', error);
     res.status(500).json({
-      error: 'មានបញ្ហា! សូមពិនិត្យ API key ឬ Gateway configuration របស់អ្នក។',
+      error: 'មានបញ្ហា! សូមពិនិត្យ API Key ឬការកំណត់ Gateway។',
       detail: error.message,
     });
   }
 });
 
 // ============================================
-// HISTORY & MEMORY ENDPOINTS
+// HISTORY ENDPOINTS (គាំទ្រទាំង /api/history/me)
 // ============================================
 app.get('/api/history/:sessionId', requireAuth, (req, res) => {
   res.json({ history: getHistory(String(req.userId)) });
@@ -373,6 +348,9 @@ app.delete('/api/history/:sessionId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================
+// MEMORY ENDPOINTS (គាំទ្រទាំង /api/memory/me និង /api/memory/:factId)
+// ============================================
 app.get('/api/memory/:sessionId', requireAuth, (req, res) => {
   res.json({ facts: getFacts(String(req.userId)) });
 });
@@ -382,6 +360,9 @@ app.delete('/api/memory/:factId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================
+// FILES & HEALTH CHECK
+// ============================================
 app.get('/api/files', (req, res) => {
   const files = fs
     .readdirSync(DOWNLOADS_DIR)
