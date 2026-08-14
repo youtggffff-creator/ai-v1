@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Uchiro — Your AI</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1a120d" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ AUTH SCREEN ============ -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="sun-mark auth-sun"><span class="sun-core"></span></div>
+      <div class="auth-brand">UCHIRO</div>
+      <div class="auth-tag" data-i18n="authTag">Your personal AI, powered up.</div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" data-i18n="signIn">Sign In</button>
+        <button class="auth-tab" id="tabSignup" data-i18n="signUp">Sign Up</button>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <input type="text" id="authName" placeholder="Your name" class="auth-input" style="display:none;" />
+        <input type="email" id="authEmail" placeholder="Email" class="auth-input" required />
+        <input type="password" id="authPassword" placeholder="Password" class="auth-input" required minlength="6" />
+        <button type="submit" class="auth-submit" id="authSubmit" data-i18n="signIn">Sign In</button>
+        <div class="auth-error" id="authError"></div>
+      </form>
+
+      <div class="auth-footer" data-i18n="founderCredit">Founder: KHINSOVANNOREAKYOUT</div>
+    </div>
+  </div>
+
+  <!-- ============ APP SHELL ============ -->
+  <div class="shell" id="appShell" style="display:none;">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-block">
+        <div class="sun-mark" id="sunMark">
+          <span class="sun-core"></span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-name">UCHIRO</div>
+          <div class="brand-tag">robot / programming</div>
+        </div>
+        <div class="lang-toggle" id="langToggle">
+          <button class="lang-btn active" data-lang="en">EN</button>
+          <button class="lang-btn" data-lang="km">ខ្មែរ</button>
+        </div>
+      </div>
+
+      <div class="user-chip" id="userChip">
+        <span class="user-avatar">👤</span>
+        <span class="user-email" id="userEmail"></span>
+        <button class="logout-btn" id="logoutBtn" title="Sign out">⏻</button>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label" data-i18n="toolsLabel">Tools</div>
+        <div class="catalog">
+          <button class="tool-chip" data-prompt-en="Write a report about " data-prompt-km="សរសេរ report មួយអំពី ">
+            <span class="chip-icon">📄</span> <span data-i18n="toolDoc">Write Document</span>
+          </button>
+          <button class="tool-chip" data-prompt-en="Search the web for " data-prompt-km="ស្វែងរកព័ត៌មានអំពី ">
+            <span class="chip-icon">🔍</span> <span data-i18n="toolSearch">Web Search</span>
+          </button>
+          <button class="tool-chip" id="attachChip">
+            <span class="chip-icon">📎</span> <span data-i18n="toolUpload">Upload File</span>
+          </button>
+          <button class="tool-chip" data-prompt-en="Calculate " data-prompt-km="គណនា ">
+            <span class="chip-icon">🧮</span> <span data-i18n="toolCalc">Calculator</span>
+          </button>
+          <button class="tool-chip" data-prompt-en="Remember that " data-prompt-km="ចាំថា ">
+            <span class="chip-icon">🧠</span> <span data-i18n="toolRemember">Remember This</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label-row">
+          <span class="side-label" data-i18n="memoryLabel">What Uchiro Remembers</span>
+          <span class="count-badge" id="memCount">0</span>
+        </div>
+        <div class="memory-list" id="memoryList">
+          <div class="empty-hint" data-i18n="memoryEmpty">Nothing yet — Uchiro will remember what you tell it</div>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label-row">
+          <span class="side-label" data-i18n="filesLabel">Generated Files</span>
+          <span class="count-badge" id="fileCount">0</span>
+        </div>
+        <div class="files-list" id="filesList">
+          <div class="empty-hint" data-i18n="filesEmpty">No files yet</div>
+        </div>
+      </div>
+
+      <button class="clear-all-btn" id="clearBtn" data-i18n="clearBtn">🗑 Clear Conversation</button>
+      <div class="founder-credit" data-i18n="founderCredit">Founder: KHINSOVANNOREAKYOUT</div>
+    </aside>
+
+    <!-- ============ MAIN CHAT ============ -->
+    <main class="main">
+      <header class="topbar">
+        <button class="menu-toggle" id="menuToggle">☰</button>
+        <div class="status-line">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="status" data-i18n="connecting">Connecting...</span>
+        </div>
+      </header>
+
+      <div class="chat" id="chat">
+        <div class="msg bot">
+          <div class="avatar">☀</div>
+          <div class="bubble" data-i18n="welcomeMsg">
+            Hey, I'm <strong>Uchiro</strong> — your personal AI assistant.
+            I can search the web, read images and files, write documents, do math, and remember things about you.
+          </div>
+        </div>
+      </div>
+
+      <div class="image-preview" id="imagePreview" style="display:none;">
+        <img id="previewImg" src="" alt="preview" />
+        <span id="previewLabel" class="preview-label"></span>
+        <button id="removeImage">✕</button>
+      </div>
+
+      <form class="inputbar" id="form">
+        <label class="attach-btn" title="Upload file">
+          📎
+          <input type="file" id="imageInput" accept="image/*,.pdf,.txt,.csv,.md,.json" hidden />
+        </label>
+        <textarea id="input" data-i18n-placeholder="inputPlaceholder" placeholder="Ask Uchiro anything..." rows="1"></textarea>
+        <button type="submit" id="sendBtn"><span data-i18n="sendBtn">Send</span></button>
+      </form>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
