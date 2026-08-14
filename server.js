@@ -1,8 +1,6 @@
 // ============================================
-// AI CHATBOT SERVER v2 — ដូច Claude.ai ជាងមុន
+// AI CHATBOT SERVER v2 — UCHIRO
 // ============================================
-// Features: Web search ពិត | Image upload | Database (SQLite) | Smart file detection (Tool Use)
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -26,23 +24,30 @@ const DOWNLOADS_DIR = path.join(__dirname, 'public', 'downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
 app.use(cors());
-app.use(express.json({ limit: '25mb' })); // ធំជាងធម្មតា ព្រោះ file/image base64 ធំ
+app.use(express.json({ limit: '25mb' }));
 app.use(express.static('public'));
 
+// ផ្ទៀងផ្ទាត់ Environment Variables
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error('❌ សូមដាក់ ANTHROPIC_API_KEY ក្នុង file .env ជាមុនសិន!');
   process.exit(1);
 }
 if (!process.env.JWT_SECRET) {
-  console.error('❌ សូមដាក់ JWT_SECRET ក្នុង file .env ជាមុនសិន! (ត្រូវការសម្រាប់ Sign In)');
+  console.error('❌ សូមដាក់ JWT_SECRET ក្នុង file .env ជាមុនសិន!');
   process.exit(1);
 }
-const JWT_SECRET = process.env.JWT_SECRET;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const JWT_SECRET = process.env.JWT_SECRET;
+const MODEL_NAME = process.env.MODEL_NAME || 'claude-opus-5';
+
+// ✅ Fix: បញ្ចូល baseURL សម្រាប់ AI Gateway / Custom Proxy
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  ...(process.env.ANTHROPIC_BASE_URL && { baseURL: process.env.ANTHROPIC_BASE_URL }),
+});
 
 // ============================================
-// AUTH MIDDLEWARE — ត្រួតពិនិត្យ login token
+// AUTH MIDDLEWARE
 // ============================================
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -58,41 +63,64 @@ function requireAuth(req, res, next) {
 }
 
 // ============================================
-// AUTH ENDPOINTS — Sign up / Sign in with Email
+// AUTH ENDPOINTS
 // ============================================
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { email, password, name } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password ត្រូវការយ៉ាងតិច ៦ តួអក្សរ' });
-    if (findUserByEmail(email)) return res.status(409).json({ error: 'Email នេះមានគណនីរួចហើយ — សូម Sign in ជំនួសវិញ' });
+    const { email, password, name, username } = req.body;
+    const displayName = name || username || 'User';
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password ត្រូវការយ៉ាងតិច ៦ តួអក្សរ' });
+    }
+
+    const existingUser = findUserByEmail(email);
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email នេះមានគណនីរួចហើយ — សូម Sign in ជំនួសវិញ' });
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const userId = createUser(email, passwordHash, name);
+    const userId = createUser(email, passwordHash, displayName);
     const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: userId, email: email.toLowerCase().trim(), name } });
+
+    res.json({
+      token,
+      user: { id: userId, email: email.toLowerCase().trim(), name: displayName },
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'មិនអាចបង្កើតគណនីបានទេ' });
+    console.error('Signup Error:', error);
+    res.status(500).json({ error: 'មិនអាចបង្កើតគណនីបានទេ: ' + error.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email និង password ត្រូវការ' });
+    }
 
     const user = findUserByEmail(email);
-    if (!user) return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
+    if (!user) {
+      return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
+    }
 
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
+    if (!valid) {
+      return res.status(401).json({ error: 'Email ឬ password មិនត្រឹមត្រូវ' });
+    }
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, name: user.name },
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'មិនអាច Sign in បានទេ' });
+    console.error('Login Error:', error);
+    res.status(500).json({ error: 'មិនអាច Sign in បានទេ: ' + error.message });
   }
 });
 
@@ -105,6 +133,10 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 // ============================================
 // FILE GENERATION HELPERS
 // ============================================
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'document';
+}
+
 function createPDF(content, title) {
   const filename = `${slugify(title)}-${crypto.randomBytes(4).toString('hex')}.pdf`;
   const filepath = path.join(DOWNLOADS_DIR, filename);
@@ -135,13 +167,6 @@ async function createDocx(content, title) {
   return filename;
 }
 
-function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'document';
-}
-
-// ============================================
-// SAFE CALCULATOR — អនុញ្ញាតតែលេខ+សញ្ញាគណិត កុំឲ្យ code injection
-// ============================================
 function safeCalculate(expression) {
   if (!/^[0-9+\-*/().\s]+$/.test(expression)) {
     throw new Error('កន្សោមមិនត្រឹមត្រូវ — អនុញ្ញាតតែលេខ និងសញ្ញា + - * / ( )');
@@ -153,56 +178,47 @@ function safeCalculate(expression) {
 }
 
 // ============================================
-// TOOL DEFINITIONS — Claude សម្រេចចិត្តខ្លួនឯងពេលណាត្រូវហៅ
+// TOOL DEFINITIONS
 // ============================================
 const tools = [
   {
-    // Custom tool — យើងគ្រប់គ្រង logic ខ្លួនឯង
     name: 'create_document',
-    description:
-      'បង្កើត file ជា PDF ឬ Word document សម្រាប់ user ទាញយក។ ប្រើ tool នេះនៅពេល user ស្នើសុំ report, document, letter, contract ឬអ្វីៗដែលគួរផ្តល់ជា file ដើម្បីរក្សាទុក/បោះពុម្ព/ចែករំលែក — មិនមែនគ្រាន់តែឆ្លើយសំណួរធម្មតា។',
+    description: 'បង្កើត file ជា PDF ឬ Word document សម្រាប់ user ទាញយក។',
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'ចំណងជើងឯកសារ' },
-        content: { type: 'string', description: 'ខ្លឹមសារពេញលេញនៃឯកសារ សរសេរឲ្យបានល្អិតល្អន់និងរៀបចំរបៀបរាយបញ្ជី' },
-        format: { type: 'string', enum: ['pdf', 'docx'], description: 'ប្រភេទ file ដែល user ចង់បាន (default: pdf)' },
+        content: { type: 'string', description: 'ខ្លឹមសារពេញលេញនៃឯកសារ' },
+        format: { type: 'string', enum: ['pdf', 'docx'], description: 'ប្រភេទ file (pdf ឬ docx)' },
       },
       required: ['title', 'content'],
     },
   },
   {
-    // Server-side tool — Anthropic ដំណើរការស្វ័យប្រវត្តិ (យើងមិនត្រូវសរសេរ logic)
-    type: 'web_search_20250305',
-    name: 'web_search',
-  },
-  {
     name: 'remember_fact',
-    description:
-      'រក្សាទុកព័ត៌មានសំខាន់អំពី user ជាអចិន្ត្រៃយ៍ សម្រាប់ចាំក្នុងការសន្ទនាលើកក្រោយ។ ប្រើនៅពេល user ប្រាប់ឈ្មោះ, ចំណូលចិត្ត, គម្រោង, ព័ត៌មានផ្ទាល់ខ្លួន ឬអ្វីៗដែលមានប្រយោជន៍ចាំក្នុងពេលអនាគត។ កុំប្រើសម្រាប់ព័ត៌មានបណ្តោះអាសន្នមិនសំខាន់។',
+    description: 'រក្សាទុកព័ត៌មានសំខាន់អំពី user ជាអចិន្ត្រៃយ៍។',
     input_schema: {
       type: 'object',
       properties: {
-        fact: { type: 'string', description: 'ព័ត៌មានខ្លីមួយប្រយោគ ដែលគួរចាំ (ឧទាហរណ៍: "ឈ្មោះ user គឺ Sokha", "user កំពុងសាងសង់ store លក់ស្បែកជើង")' },
+        fact: { type: 'string', description: 'ព័ត៌មានខ្លីមួយប្រយោគដែលត្រូវចងចាំ' },
       },
       required: ['fact'],
     },
   },
   {
     name: 'calculate',
-    description:
-      'គណនាកន្សោមគណិតវិទ្យា (arithmetic) យ៉ាងជាក់លាក់ត្រឹមត្រូវ។ ប្រើ tool នេះជំនួសគណនាក្នុងចិត្តរាល់ពេលមានលេខ/គណនាដែលត្រូវការភាពត្រឹមត្រូវខ្ពស់ (ឧទាហរណ៍ គណនាថ្លៃដើម, ភាគរយ, ការប្តូររូបិយប័ណ្ណដោយដៃ)។',
+    description: 'គណនាកន្សោមគណិតវិទ្យា (arithmetic) យ៉ាងជាក់លាក់។',
     input_schema: {
       type: 'object',
       properties: {
-        expression: { type: 'string', description: 'កន្សោមគណិតវិទ្យា ប្រើតែលេខ + - * / ( ) . ប៉ុណ្ណោះ ឧទាហរណ៍ "1500 * 1.08"' },
+        expression: { type: 'string', description: 'កន្សោមគណិត ឧទាហរណ៍ "1500 * 1.08"' },
       },
       required: ['expression'],
     },
   },
   {
     name: 'get_datetime',
-    description: 'ទាញយកកាលបរិច្ឆេទ និងម៉ោងបច្ចុប្បន្នពិត។ ប្រើនៅពេល user សួរអំពី "ថ្ងៃនេះ", "ឥឡូវនេះ", deadline, ឬត្រូវការគណនាចំនួនថ្ងៃ។',
+    description: 'ទាញយកកាលបរិច្ឆេទ និងម៉ោងបច្ចុប្បន្ន។',
     input_schema: { type: 'object', properties: {} },
   },
 ];
@@ -213,25 +229,25 @@ const tools = [
 app.post('/api/chat', requireAuth, async (req, res) => {
   try {
     const { message, attachment } = req.body;
-    const sessionId = String(req.userId); // គណនី user ម្នាក់ៗចាំ history ដាច់ដោយឡែក
+    const sessionId = String(req.userId);
     if (!message && !attachment) return res.status(400).json({ error: 'សូមផ្ញើសារ' });
 
-    // ១. ទាញយក history ចាស់ + memory ដែលធ្លាប់ចាំពី database
-    const pastMessages = getHistory(sessionId).map((m) => ({
+    // ១. History + Memory
+    const pastMessages = getHistory(sessionId, 20).map((m) => ({
       role: m.role,
       content: m.content,
     }));
 
     const facts = getFacts(sessionId);
     const memoryBlock = facts.length
-      ? `\n\nThings you remember about the user (use naturally, don't just recite them):\n${facts.map((f) => `- ${f.fact}`).join('\n')}`
+      ? `\n\nThings you remember about the user:\n${facts.map((f) => `- ${f.fact}`).join('\n')}`
       : '';
 
-    const systemPrompt = `You are Uchiro — the user's personal AI assistant (their robot / programming companion), created by its founder KHINSOVANNOREAKYOUT. Personality: sharp, honest, energetic, direct, warm.
+    const systemPrompt = `You are Uchiro — the user's personal AI assistant, created by KHINSOVANNOREAKYOUT. Personality: sharp, honest, energetic, direct, warm.
 
-Language rule: Reply in English by default. If the user writes in Khmer, reply in Khmer. Otherwise, match whatever language the user writes in. Never mix languages within one reply unless the user does.${memoryBlock}`;
+Language rule: Reply in English by default. If the user writes in Khmer, reply in Khmer. Otherwise, match the user's language.${memoryBlock}`;
 
-    // ២. សាងសង់ user message ថ្មី (អាចមាន text + attachment: image/pdf/text-file)
+    // ២. User Content
     const userContent = [];
     let attachmentLabel = null;
 
@@ -249,7 +265,7 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
         });
         attachmentLabel = `[pdf: ${attachment.name}]`;
       } else if (attachment.kind === 'text') {
-        const trimmed = attachment.textContent.slice(0, 30000); // កំណត់ទំហំកុំឲ្យ token ច្រើនពេក
+        const trimmed = attachment.textContent.slice(0, 30000);
         userContent.push({
           type: 'text',
           text: `[Uploaded file: ${attachment.name}]\n---\n${trimmed}\n---`,
@@ -258,44 +274,34 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
       }
     }
 
-    userContent.push({ type: 'text', text: message || 'Please look at this file.' });
+    userContent.push({ type: 'text', text: message || 'Please inspect the uploaded attachment.' });
 
     let messages = [...pastMessages, { role: 'user', content: userContent }];
-
-    // ៣. Save user message ចូល database
     saveMessage(sessionId, 'user', message || attachmentLabel || '[attachment]');
 
     let downloadUrl = null;
     let finalText = '';
-    let usedWebSearch = false;
     let newFacts = [];
 
-    // ៤. Agent loop — Claude អាចហៅ tool ច្រើនដងជាប់គ្នា រហូតដល់ចប់
+    // ៣. Agent loop (Tool Calls)
     for (let turn = 0; turn < 5; turn++) {
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: MODEL_NAME,
         max_tokens: 2000,
         system: systemPrompt,
         tools,
         messages,
       });
 
-      // ប្រមូល text ដែល Claude ឆ្លើយ
       const textBlocks = response.content.filter((b) => b.type === 'text');
-      if (textBlocks.length) finalText += textBlocks.map((b) => b.text).join('\n');
-
-      // web_search ជា server-side tool — Anthropic ដំណើរការស្រេចក្នុង response តែម្តង
-      // (block type ជា 'server_tool_use' / 'web_search_tool_result', មិនមែន 'tool_use' ធម្មតា)
-      if (response.content.some((b) => b.type === 'server_tool_use' && b.name === 'web_search')) {
-        usedWebSearch = true;
+      if (textBlocks.length) {
+        finalText += (finalText ? '\n' : '') + textBlocks.map((b) => b.text).join('\n');
       }
 
-      if (response.stop_reason !== 'tool_use') break; // Claude ឆ្លើយចប់ហើយ (custom tool គ្មានទៀត)
+      if (response.stop_reason !== 'tool_use') break;
 
-      // ដាក់ assistant turn (រួមទាំង tool_use blocks) ចូល messages
       messages.push({ role: 'assistant', content: response.content });
 
-      // ដំណើរការ custom tool calls (create_document) — web_search Anthropic ធ្វើស្រេចហើយ
       const toolResults = [];
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
@@ -332,34 +338,31 @@ Language rule: Reply in English by default. If the user writes in Khmer, reply i
         }
 
         if (block.name === 'get_datetime') {
-          const now = new Date();
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: now.toISOString() + ' (UTC)',
+            content: new Date().toISOString() + ' (UTC)',
           });
         }
       }
 
-      if (toolResults.length === 0) break; // គ្មាន custom tool ត្រូវឆ្លើយតប (web_search server-side ស្រេច)
+      if (toolResults.length === 0) break;
       messages.push({ role: 'user', content: toolResults });
     }
 
-    // ៥. Save assistant reply ចូល database
     saveMessage(sessionId, 'assistant', finalText, downloadUrl);
-
-    res.json({ reply: finalText, downloadUrl, usedWebSearch, newFacts });
+    res.json({ reply: finalText, downloadUrl, newFacts });
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('API Error:', error);
     res.status(500).json({
-      error: 'មានបញ្ហា! សូមពិនិត្យ API key ឬ credit របស់អ្នក។',
+      error: 'មានបញ្ហា! សូមពិនិត្យ API key ឬ Gateway configuration របស់អ្នក។',
       detail: error.message,
     });
   }
 });
 
 // ============================================
-// HISTORY ENDPOINTS
+// HISTORY & MEMORY ENDPOINTS
 // ============================================
 app.get('/api/history/:sessionId', requireAuth, (req, res) => {
   res.json({ history: getHistory(String(req.userId)) });
@@ -370,9 +373,6 @@ app.delete('/api/history/:sessionId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ============================================
-// MEMORY ENDPOINTS
-// ============================================
 app.get('/api/memory/:sessionId', requireAuth, (req, res) => {
   res.json({ facts: getFacts(String(req.userId)) });
 });
@@ -382,9 +382,6 @@ app.delete('/api/memory/:factId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ============================================
-// FILES CATALOG — បញ្ជី file ដែលបានបង្កើតរួច
-// ============================================
 app.get('/api/files', (req, res) => {
   const files = fs
     .readdirSync(DOWNLOADS_DIR)
